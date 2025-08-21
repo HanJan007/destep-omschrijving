@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DESTEP Drag-and-Drop Spel</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #f8f9fa; }
+    .factor-zone { min-height: 140px; border: 2px dashed #dee2e6; border-radius: .75rem; padding: .75rem; background: #fff; transition: background 0.3s ease; }
+    .factor-card { border-radius: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background 0.3s ease; }
+    .factor-complete { background: #d1e7dd !important; }
+    .draggable-card { cursor: grab; user-select: none; }
+    .draggable-card:active { cursor: grabbing; }
+    .zone-hover { background: #f1f3f5; }
+    .wiggle { animation: wiggle .35s ease-in-out; }
+    @keyframes wiggle {
+      0%,100%{ transform: translateX(0) }
+      15%{ transform: translateX(-6px) }
+      30%{ transform: translateX(6px) }
+      45%{ transform: translateX(-4px) }
+      60%{ transform: translateX(4px) }
+      75%{ transform: translateX(-2px) }
+      90%{ transform: translateX(2px) }
+    }
+    .nowrap-scroll { overflow-x: auto; }
+    .nowrap-scroll > .row { flex-wrap: nowrap; }
+    .factor-badge { font-size: .75rem; color: #6c757d; }
+  </style>
+</head>
+<body>
+  <main class="container py-4">
+    <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-end justify-content-between gap-2 mb-3">
+      <div>
+        <h1 class="h3 mb-1">DESTEP Drag‑and‑Drop</h1>
+        <p class="text-secondary small mb-0">Sleep de algemene omschrijving van de factor naar de juiste naam. Alleen bij een juiste match verschijnt de volgende. Correcte omschrijvingen blijven staan.</p>
+      </div>
+      <div class="d-flex align-items-center gap-3">
+        <span class="badge text-bg-light border" id="scoreBadge">Score: <strong id="score">0</strong> / <span id="total">0</span></span>
+        <span class="badge text-bg-light border">Tijd: <strong id="timer">0.000</strong>s</span>
+        <button class="btn btn-sm btn-outline-secondary" id="resetBtn">Reset</button>
+      </div>
+    </div>
+
+    <div class="nowrap-scroll">
+      <div class="row g-3"></div>
+    </div>
+
+    <section class="d-flex justify-content-center mt-4" aria-live="polite">
+      <div id="currentCardWrap" class="col-12 col-lg-10"></div>
+    </section>
+
+    <section id="finishSection" class="text-center mt-4 d-none">
+      <div class="card factor-card">
+        <div class="card-body">
+          <h2 class="h5 mb-2">🎉 Klaar!</h2>
+          <p class="text-secondary mb-0">Je hebt alle omschrijvingen juist geplaatst.</p>
+          <div class="mt-3">
+            <button class="btn btn-outline-secondary" id="againBtn">Nog een keer spelen</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const FACTORS = [
+      { key: "D", label: "Demografisch" },
+      { key: "E", label: "Economisch" },
+      { key: "S", label: "Sociaal‑cultureel" },
+      { key: "T", label: "Technologisch" },
+      { key: "Ec", label: "Ecologisch" },
+      { key: "P", label: "Politiek‑juridisch" },
+    ];
+
+    const ITEMS = [
+      { text: "Bestudeert de samenstelling en ontwikkeling van de bevolking, zoals leeftijdsopbouw en groei.", factor: "D" },
+      { text: "Analyseert demografische trends zoals migratie, geboorte- en sterftecijfers.", factor: "D" },
+      { text: "Kijkt naar kenmerken van bevolkingsgroepen die invloed hebben op vraag en aanbod.", factor: "D" },
+      { text: "Analyseert economische omstandigheden en trends die invloed hebben op organisaties.", factor: "E" },
+      { text: "Bestudeert factoren zoals inflatie, werkloosheid, rente en economische groei.", factor: "E" },
+      { text: "Onderzoekt koopkracht, besteedbaar inkomen en investeringsklimaat.", factor: "E" },
+      { text: "Onderzoekt waarden, normen, cultuur en maatschappelijke trends.", factor: "S" },
+      { text: "Analyseert veranderingen in levensstijl, opleiding en vrijetijdsbesteding.", factor: "S" },
+      { text: "Bestudeert sociale structuren en demografische invloeden op cultuur.", factor: "S" },
+      { text: "Kijkt naar innovaties en hun impact op producten, processen en markten.", factor: "T" },
+      { text: "Analyseert snelheid en richting van technologische ontwikkelingen.", factor: "T" },
+      { text: "Onderzoekt technologische kansen en bedreigingen voor organisaties.", factor: "T" },
+      { text: "Behandelt milieuaspecten zoals klimaat en duurzaamheid.", factor: "Ec" },
+      { text: "Onderzoekt gebruik van natuurlijke hulpbronnen en milieuwetgeving.", factor: "Ec" },
+      { text: "Analyseert ecologische trends zoals energietransitie en afvalbeheer.", factor: "Ec" },
+      { text: "Richt zich op wet- en regelgeving en politieke stabiliteit.", factor: "P" },
+      { text: "Onderzoekt overheidsbeleid en internationale verdragen.", factor: "P" },
+      { text: "Analyseert politieke beslissingen die invloed hebben op bedrijven.", factor: "P" }
+    ];
+
+    let queue = [];
+    let index = 0;
+    let score = 0;
+    const matched = {};
+    let startTime = null;
+    let timerInterval = null;
+
+    function shuffle(arr) {
+      const a = arr.slice();
+      for (let m = a.length - 1; m > 0; m--) {
+        const i = Math.floor(Math.random() * (m + 1));
+        [a[m], a[i]] = [a[i], a[m]];
+      }
+      return a;
+    }
+
+    const rowEl = document.querySelector('.row.g-3');
+    const currentWrap = document.getElementById('currentCardWrap');
+    const finishSection = document.getElementById('finishSection');
+    const scoreEl = document.getElementById('score');
+    const totalEl = document.getElementById('total');
+    const timerEl = document.getElementById('timer');
+
+    function buildFactors() {
+      rowEl.innerHTML = '';
+      FACTORS.forEach(f => {
+        const col = document.createElement('div');
+        col.className = 'col-10 col-sm-6 col-md-4 col-lg-2';
+
+        const card = document.createElement('div');
+        card.className = 'card factor-card h-100';
+        card.id = `card-${f.key}`;
+
+        const body = document.createElement('div');
+        body.className = 'card-body d-flex flex-column gap-2';
+
+        const header = document.createElement('div');
+        header.className = 'd-flex justify-content-between align-items-center';
+        header.innerHTML = `<strong>${f.label}</strong> <span class="factor-badge" id="count-${f.key}">0</span>`;
+
+        const zone = document.createElement('div');
+        zone.className = 'factor-zone';
+        zone.dataset.factor = f.key;
+
+        zone.addEventListener('dragover', ev => { ev.preventDefault(); zone.classList.add('zone-hover'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('zone-hover'));
+        zone.addEventListener('drop', handleDrop);
+
+        body.appendChild(header);
+        body.appendChild(zone);
+        card.appendChild(body);
+        col.appendChild(card);
+        rowEl.appendChild(col);
+      });
+    }
+
+    function renderCurrentCard() {
+      currentWrap.innerHTML = '';
+      finishSection.classList.add('d-none');
+
+      if (index >= queue.length) {
+        clearInterval(timerInterval);
+        finishSection.classList.remove('d-none');
+        return;
+      }
+
+      const item = queue[index];
+      const card = document.createElement('div');
+      card.className = 'card draggable-card col-12 col-lg-10';
+      card.draggable = true;
+      card.addEventListener('dragstart', ev => {
+        if (!startTime) {
+          startTime = performance.now();
+          timerInterval = setInterval(updateTimer, 10);
+        }
+        ev.dataTransfer.setData('text/plain', index.toString());
+        ev.dataTransfer.effectAllowed = 'move';
+      });
+
+      const body = document.createElement('div');
+      body.className = 'card-body';
+      body.innerHTML = `<p class="lead mb-1">${item.text}</p>
+                        <div class="text-secondary small">Sleep naar: Demografisch, Economisch, Sociaal‑cultureel, Technologisch, Ecologisch of Politiek‑juridisch.</div>`;
+      card.appendChild(body);
+      currentWrap.appendChild(card);
+    }
+
+    function updateTimer() {
+      const elapsed = performance.now() - startTime;
+      timerEl.textContent = (elapsed / 1000).toFixed(3);
+    }
+
+    function handleDrop(ev) {
+      ev.preventDefault();
+      this.classList.remove('zone-hover');
+      const draggedIndex = parseInt(ev.dataTransfer.getData('text/plain'), 10);
+      const current = queue[draggedIndex];
+      if (!current) return;
+
+      const targetFactor = this.dataset.factor;
+      if (current.factor === targetFactor) {
+        const pill = document.createElement('div');
+        pill.className = 'border rounded px-2 py-1 mb-2 bg-light';
+        pill.textContent = current.text;
+        this.appendChild(pill);
+
+        const c = document.getElementById('count-' + targetFactor);
+        const newCount = (matched[targetFactor]?.length || 0) + 1;
+        c.textContent = String(newCount);
+
+        matched[targetFactor] = (matched[targetFactor] || []).concat(current);
+        if (newCount === 3) {
+          document.getElementById(`card-${targetFactor}`).classList.add('factor-complete');
+        }
+
+        score++;
+        scoreEl.textContent = String(score);
+
+        index++;
+        setTimeout(renderCurrentCard, 150);
+      } else {
+        const card = currentWrap.querySelector('.card');
+        if (card) {
+          card.classList.remove('wiggle');
+          void card.offsetWidth;
+          card.classList.add('wiggle');
+        }
+      }
+    }
+
+    function resetGame() {
+      queue = shuffle(ITEMS);
+      index = 0;
+      score = 0;
+      startTime = null;
+      clearInterval(timerInterval);
+      timerEl.textContent = '0.000';
+      for (const k in matched) delete matched[k];
+
+      scoreEl.textContent = '0';
+      totalEl.textContent = String(ITEMS.length);
+      buildFactors();
+      renderCurrentCard();
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    document.getElementById('againBtn').addEventListener('click', resetGame);
+
+    resetGame();
+  </script>
+</body>
+</html>
